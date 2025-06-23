@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import io
 import base64
-from fpdf import FPDF
 
 # --- Constants ---
 e = 1.6e-19  # elementary charge [C]
@@ -14,7 +13,6 @@ keV_to_J = 1.602e-16
 # --- Reaction parameters ---
 E_alpha = 3.5 * keV_to_J  # alpha energy [J]
 E_total = 17.6 * keV_to_J
-laser_efficiency = 0.15  # 가정: 레이저 에너지에서 알파 가열로 변환되는 비율
 
 # Bosch-Hale like approximation for <sigma v>
 def sigma_v_DT(T_keV):
@@ -40,8 +38,6 @@ def fusion_power(n, T_keV):
 def simulate(T0, n0, dt, steps, compression_schedule, pulse_duration):
     Ts = [T0]
     ns = [n0]
-    Pfus = []
-    Ploss = []
     times = np.arange(steps + 1) * dt
     pulse_steps = int(pulse_duration / dt)
 
@@ -54,18 +50,15 @@ def simulate(T0, n0, dt, steps, compression_schedule, pulse_duration):
         P_alpha = alpha_heating(current_n, T)
         P_loss = bremsstrahlung_loss(current_n, T)
 
-        Pfus.append(P_fusion)
-        Ploss.append(P_loss)
-
         dT = (P_alpha - P_loss) * dt / (1.5 * current_n * keV_to_J)
         T_new = max(T + dT, 0.01)
         Ts.append(T_new)
         ns.append(current_n)
-    return times, Ts, ns, Pfus, Ploss
+    return times, Ts, ns
 
 # --- Streamlit UI ---
 st.set_page_config(layout="wide")
-st.title("🔥 실험 기반 레이저 핵융합 시뮬레이션 (Q값 + PDF + 최적 조건 분석 포함)")
+st.title("🔥 실험 기반 레이저 핵융합 시뮬레이션 (3D + 애니메이션 + PDF 포함)")
 
 col1, col2 = st.columns(2)
 
@@ -92,7 +85,7 @@ else:
     compression_schedule[:] = compression_max
 
 if st.button("▶️ 시뮬레이션 시작"):
-    t, T_curve, n_curve, P_fus_list, P_loss_list = simulate(T0, n, dt, int(steps), compression_schedule, pulse_duration)
+    t, T_curve, n_curve = simulate(T0, n, dt, int(steps), compression_schedule, pulse_duration)
 
     # 온도 그래프
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -111,23 +104,31 @@ if st.button("▶️ 시뮬레이션 시작"):
     else:
         st.markdown("### ❌ 핵융합 조건 불충분 (n·τ < 10¹⁴)")
 
-    # Q값 계산
-    E_output = np.sum(P_fus_list) * dt
-    E_input = laser_efficiency * pulse_duration * 1e21  # 가정치
-    Q = E_output / E_input if E_input > 0 else 0
-    st.metric("Q값 (출력/입력 에너지 비율)", f"{Q:.2f}")
+    # 3D 시각화 애니메이션
+    with st.expander("🧊 3D 플라즈마 애니메이션"):
+        frames = []
+        for T in T_curve[::max(1, int(len(T_curve)/30))]:
+            color = "rgb({}, {}, {})".format(int(min(255, 10 * T)), 30, int(255 - min(255, 10 * T)))
+            frames.append(go.Mesh3d(
+                x=[0, 1, 0, -1, 0, 0],
+                y=[0, 0, 1, 0, -1, 0],
+                z=[1, 0, 0, 0, 0, -1],
+                color=color,
+                opacity=0.7,
+                alphahull=5
+            ))
+        fig3d = go.Figure(data=frames[:1])
+        fig3d.update(frames=[go.Frame(data=[f]) for f in frames])
+        fig3d.update_layout(
+            updatemenus=[dict(type="buttons", buttons=[dict(label="Play", method="animate", args=[None])])],
+            scene=dict(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False))
+        )
+        st.plotly_chart(fig3d)
 
-    # 최적 조건 분석 (펄스 지속시간이 Q값 최대가 되는 경우?)
-    if st.checkbox("📈 펄스 지속시간 vs Q값 분석"):
-        durations = np.linspace(10e-9, 300e-9, 20)
-        qvals = []
-        for d in durations:
-            _, _, _, pf, _ = simulate(T0, n, dt, int(steps), compression_schedule, d)
-            q = np.sum(pf)*dt / (laser_efficiency*d*1e21)
-            qvals.append(q)
-        figq, axq = plt.subplots()
-        axq.plot(durations*1e9, qvals)
-        axq.set_xlabel("레이저 펄스 시간 (ns)")
-        axq.set_ylabel("Q값")
-        axq.set_title("레이저 펄스 시간에 따른 Q값 변화")
-        st.pyplot(figq)
+    # 결과 PDF용 데이터 다운로드
+    csv = "시간(ns),온도(keV),밀도(cm^-3)\n" + "\n".join([
+        f"{t[i]*1e9:.3f},{T_curve[i]:.3f},{n_curve[i]:.3e}" for i in range(len(t))
+    ])
+    b64 = base64.b64encode(csv.encode()).decode()
+    href = f'<a href="data:file/csv;base64,{b64}" download="fusion_simulation_result.csv">📄 결과 CSV 다운로드</a>'
+    st.markdown(href, unsafe_allow_html=True)
