@@ -131,27 +131,3 @@ if st.button("▶️ 시뮬레이션 시작"):
         axq.set_ylabel("Q값")
         axq.set_title("레이저 펄스 시간에 따른 Q값 변화")
         st.pyplot(figq)
-
-    # PDF 결과 요약 리포트
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Fusion Simulation Report", ln=True, align='C')
-    pdf.ln(10)
-    pdf.cell(200, 10, txt=f"Final Temperature: {final_T:.2f} keV", ln=True)
-    pdf.cell(200, 10, txt=f"Q Value: {Q:.2f}", ln=True)
-    pdf.cell(200, 10, txt=f"n: {n:.2e} cm^-3", ln=True)
-    pdf.cell(200, 10, txt=f"Pulse Duration: {pulse_duration*1e9:.1f} ns", ln=True)
-    pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
-    b64_pdf = base64.b64encode(pdf_output.getvalue()).decode()
-    href_pdf = f'<a href="data:application/pdf;base64,{b64_pdf}" download="fusion_report.pdf">📄 PDF 리포트 다운로드</a>'
-    st.markdown(href_pdf, unsafe_allow_html=True)
-
-    # 결과 CSV 다운로드
-    csv = "시간(ns),온도(keV),밀도(cm^-3)\n" + "\n".join([
-        f"{t[i]*1e9:.3f},{T_curve[i]:.3f},{n_curve[i]:.3e}" for i in range(len(t))
-    ])
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="fusion_simulation_result.csv">📄 결과 CSV 다운로드</a>'
-    st.markdown(href, unsafe_allow_html=True)
